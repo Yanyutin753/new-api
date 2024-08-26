@@ -454,7 +454,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayMode int) *dto.MidjourneyRespons
 
 	baseURL := c.GetString("base_url")
 
-	//midjRequest.NotifyHook = "http://127.0.0.1:3000/mj/notify"
+	//midjRequest.NotifyHook = "http://127.0.0.1:3215/mj/notify"
 
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
 

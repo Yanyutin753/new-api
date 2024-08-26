@@ -78,5 +78,5 @@
 ### 对接上游new api
 
 1. 在渠道管理中添加渠道，渠道类型选择**Midjourney Proxy Plus**，模型请参考上方模型列表
-2. **代理**填写上游new api的地址，例如：http://localhost:3000
+2. **代理**填写上游new api的地址，例如：http://localhost:3215
 3. 密钥填写上游new api的密钥

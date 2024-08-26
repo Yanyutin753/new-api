@@ -184,6 +184,6 @@ func MessageWithRequestId(message string, id string) string {
 }
 
 func RandomSleep() {
-	// Sleep for 0-3000 ms
+	// Sleep for 0-3215 ms
 	time.Sleep(time.Duration(rand.Intn(3000)) * time.Millisecond)
 }
