@@ -58,10 +58,11 @@ func ResponseOpenAI2Gemini(openAIResponse *dto.OpenAITextResponse, info convmeta
 		Candidates:       make([]dto.GeminiChatCandidate, 0, len(openAIResponse.Choices)),
 		HasUsageMetadata: true,
 		UsageMetadata: dto.GeminiUsageMetadata{
-			PromptTokenCount:     openAIResponse.PromptTokens,
-			CandidatesTokenCount: openAIResponse.CompletionTokens,
-			TotalTokenCount:      totalTokens,
-			BillingUsage:         openAIBillingUsageFromUsage(&openAIResponse.Usage),
+			PromptTokenCount:        openAIResponse.PromptTokens,
+			CandidatesTokenCount:    openAIResponse.CompletionTokens,
+			TotalTokenCount:         totalTokens,
+			CachedContentTokenCount: geminiCacheReadTokens(&openAIResponse.Usage),
+			BillingUsage:            openAIBillingUsageFromUsage(&openAIResponse.Usage),
 		},
 	}
 	if metadata, ok := geminiBillingMetadataFromOpenAIUsage(&openAIResponse.Usage); ok {
@@ -160,6 +161,7 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 		geminiResponse.UsageMetadata.PromptTokenCount = openAIResponse.Usage.PromptTokens
 		geminiResponse.UsageMetadata.CandidatesTokenCount = openAIResponse.Usage.CompletionTokens
 		geminiResponse.UsageMetadata.TotalTokenCount = openAIResponse.Usage.TotalTokens
+		geminiResponse.UsageMetadata.CachedContentTokenCount = geminiCacheReadTokens(openAIResponse.Usage)
 		geminiResponse.UsageMetadata.BillingUsage = openAIBillingUsageFromUsage(openAIResponse.Usage)
 		if metadata, ok := geminiBillingMetadataFromOpenAIUsage(openAIResponse.Usage); ok {
 			geminiResponse.UsageMetadata = metadata
@@ -495,6 +497,7 @@ func newGeminiStreamResponse(candidates []dto.GeminiChatCandidate, usage *dto.Us
 	response.UsageMetadata.PromptTokenCount = usage.PromptTokens
 	response.UsageMetadata.CandidatesTokenCount = usage.CompletionTokens
 	response.UsageMetadata.TotalTokenCount = usage.TotalTokens
+	response.UsageMetadata.CachedContentTokenCount = geminiCacheReadTokens(usage)
 	response.UsageMetadata.BillingUsage = openAIBillingUsageFromUsage(usage)
 	if metadata, ok := geminiBillingMetadataFromOpenAIUsage(usage); ok {
 		response.UsageMetadata = metadata
@@ -555,4 +558,15 @@ func openAIBillingUsageFromUsage(usage *dto.Usage) *dto.BillingUsage {
 		return existingBillingUsage
 	}
 	return dto.NewOpenAIChatBillingUsage(usage)
+}
+
+func geminiCacheReadTokens(usage *dto.Usage) int {
+	canonical, ok := openAIBillingUsageFromUsage(usage).CanonicalUsage()
+	if !ok {
+		canonical, ok = dto.NewOpenAIChatBillingUsage(usage).CanonicalUsage()
+	}
+	if ok {
+		return canonical.PromptTokensDetails.CachedTokens
+	}
+	return 0
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +110,66 @@ func TestStreamResponseOpenAI2GeminiMapsToolCallFinishReasonAndUsage(t *testing.
 
 func geminiRespPtr[T any](value T) *T {
 	return &value
+}
+
+func TestChatToGeminiPreservesCachedTokensAcrossResponsePaths(t *testing.T) {
+	for _, cached := range []int{0, 700} {
+		usage := dto.Usage{PromptTokens: 1000, CompletionTokens: 50, TotalTokens: 1050}
+		usage.PromptTokensDetails.CachedTokens = cached
+		finish := dto.ChatCompletionsStreamResponseChoice{FinishReason: geminiRespPtr("stop")}
+		for name, convert := range map[string]func(*testing.T, *dto.Usage) *dto.GeminiChatResponse{
+			"non-stream": func(t *testing.T, u *dto.Usage) *dto.GeminiChatResponse {
+				return ResponseOpenAI2Gemini(&dto.OpenAITextResponse{Usage: *u}, nil)
+			},
+			"legacy-stream": func(t *testing.T, u *dto.Usage) *dto.GeminiChatResponse {
+				return StreamResponseOpenAI2Gemini(&dto.ChatCompletionsStreamResponse{
+					Choices: []dto.ChatCompletionsStreamResponseChoice{finish}, Usage: u,
+				}, nil)
+			},
+			"usage-only-final-chunk": func(t *testing.T, u *dto.Usage) *dto.GeminiChatResponse {
+				state := NewChatToGeminiStreamState()
+				_, err := state.ConvertChunk(&dto.ChatCompletionsStreamResponse{
+					Choices: []dto.ChatCompletionsStreamResponseChoice{finish},
+				}, nil)
+				require.NoError(t, err)
+				responses, err := state.ConvertChunk(&dto.ChatCompletionsStreamResponse{Usage: u}, nil)
+				require.NoError(t, err)
+				require.Len(t, responses, 1)
+				final, err := state.Finalize(nil)
+				require.NoError(t, err)
+				assert.Empty(t, final)
+				return responses[0]
+			},
+			"finalize": func(t *testing.T, u *dto.Usage) *dto.GeminiChatResponse {
+				state := NewChatToGeminiStreamState()
+				state.SetUsage(u)
+				responses, err := state.Finalize(nil)
+				require.NoError(t, err)
+				require.Len(t, responses, 1)
+				return responses[0]
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				response := convert(t, &usage)
+				require.NotNil(t, response)
+				assert.Equal(t, cached, response.UsageMetadata.CachedContentTokenCount)
+				assert.Equal(t, 1000, response.UsageMetadata.PromptTokenCount)
+				assert.Equal(t, 50, response.UsageMetadata.CandidatesTokenCount)
+				assert.Equal(t, 1050, response.UsageMetadata.TotalTokenCount)
+				require.NotNil(t, response.UsageMetadata.BillingUsage)
+				require.NotNil(t, response.UsageMetadata.BillingUsage.OpenAIUsage)
+				assert.Equal(t, cached, response.UsageMetadata.BillingUsage.OpenAIUsage.PromptTokensDetails.CachedTokens)
+				encoded, err := kitutil.Marshal(response)
+				require.NoError(t, err)
+				var wire struct {
+					UsageMetadata struct {
+						Cached *int `json:"cachedContentTokenCount"`
+					} `json:"usageMetadata"`
+				}
+				require.NoError(t, kitutil.Unmarshal(encoded, &wire))
+				require.NotNil(t, wire.UsageMetadata.Cached)
+				assert.Equal(t, cached, *wire.UsageMetadata.Cached)
+			})
+		}
+	}
 }
